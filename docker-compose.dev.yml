@@ -1,0 +1,22 @@
+# Development overlay.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Phase 0 keeps this minimal — it just exposes the backend service ports to
+# the host so developers can connect with local tools (psql, redis-cli, the
+# MinIO console). Source-mounting + hot reload (air for Go, next dev for the
+# dashboard) lands in Phase 1 once there is actual code to iterate on.
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
