@@ -41,7 +41,11 @@ jobs:
         with:
           version: v1.60
           working-directory: server
-          args: --timeout=5m
+          # --go=1.23 pins the language-version target so golangci-lint v1.x
+          # (built with Go 1.23) doesn't refuse our Go 1.25 source. Our code
+          # doesn't use 1.24/1.25-only syntax features, so 1.23 static analysis
+          # is correct. Drop this once we migrate to golangci-lint v2.x.
+          args: --timeout=5m --go=1.23
 
       - name: go vet
         run: go vet ./...
@@ -78,6 +82,12 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # next build evaluates server modules to collect page data, which
+          # trips the Zod env validator. Supply CI-only placeholders so the
+          # validator passes; real deployments set these from .env. Values
+          # don't need to resolve to anything reachable.
+          DATABASE_URL: "postgres://placeholder:placeholder@localhost:5432/placeholder"
+          JWT_SECRET: "ci-placeholder-value"
 
   docker:
     name: docker images build
