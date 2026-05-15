@@ -1,0 +1,106 @@
+# GoReleaser config — multi-OS / multi-arch binary builds for the three
+# Go binaries that ship with OpenAdSource. Driven by `release.yml` on
+# every `v*` tag push.
+#
+#   goreleaser check                                 # validate
+#   goreleaser release --snapshot --clean --skip=publish  # local dry-run
+#   goreleaser release --clean                       # in CI on tag
+
+version: 2
+
+project_name: openadsource
+
+before:
+  hooks:
+    - go -C server mod tidy
+
+builds:
+  - id: adserver
+    main: ./cmd/adserver
+    dir: server
+    binary: adserver
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+  - id: worker
+    main: ./cmd/worker
+    dir: server
+    binary: worker
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+  - id: seed
+    main: ./cmd/seed
+    dir: server
+    binary: seed
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: default
+    ids: [adserver, worker, seed]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - CHANGELOG.md
+      - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  prerelease: auto
+  draft: false
+  name_template: "OpenAdSource {{ .Version }}"
+  header: |
+    See [CHANGELOG.md](https://github.com/eliau2005/openadsource/blob/main/CHANGELOG.md)
+    for the full release notes.
+  footer: |
+    ## Docker images
+
+    Multi-arch images (`linux/amd64`, `linux/arm64`) are published in
+    parallel to GHCR:
+
+    - `ghcr.io/eliau2005/openadsource-server:{{ .Version }}`
+    - `ghcr.io/eliau2005/openadsource-dashboard:{{ .Version }}`
+    - `ghcr.io/eliau2005/openadsource-server:latest`
+    - `ghcr.io/eliau2005/openadsource-dashboard:latest`
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
