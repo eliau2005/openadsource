@@ -133,10 +133,21 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// --- per-IP rate limiters for /vast + /track ---
+	// Over-limit responses are protocol-natural no-fills, NOT 429: an
+	// empty VAST for /vast and the 1x1 GIF for /track. Players never see
+	// the limiter at the protocol layer.
+	vastLimit := httpmw.NewLimiter(cfg.RateLimitVastRPS, cfg.RateLimitVastBurst,
+		cfg.RateLimitMapCap, ipResolver, deliveryHandler.WriteEmpty)
+	trackLimit := httpmw.NewLimiter(cfg.RateLimitTrackRPS, cfg.RateLimitTrackBurst,
+		cfg.RateLimitMapCap, ipResolver, tracking.WriteOnePixelGIF)
+	go vastLimit.Run(ctx)
+	go trackLimit.Run(ctx)
+
 	r.Group(func(r chi.Router) {
 		r.Use(httpmw.CORS("*"))
-		r.Get("/vast", deliveryHandler.ServeVAST)
-		r.Get("/track", trackHandler.ServeTrack)
+		r.With(vastLimit.Middleware).Get("/vast", deliveryHandler.ServeVAST)
+		r.With(trackLimit.Middleware).Get("/track", trackHandler.ServeTrack)
 		preflight := func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}

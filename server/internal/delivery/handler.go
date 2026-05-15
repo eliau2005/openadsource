@@ -284,6 +284,15 @@ func (h *Handler) writeEmpty(w http.ResponseWriter) {
 	_, _ = w.Write(body)
 }
 
+// WriteEmpty is the public version of writeEmpty exported for use as the
+// over-limit response on the /vast rate limiter. An empty VAST is the
+// natural "no-fill" players already know how to handle — better than a 429.
+func (h *Handler) WriteEmpty(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, max-age=0")
+	h.writeEmpty(w)
+}
+
 // signedTrackingURL returns the canonical signed pixel URL the player will
 // fire for `event`. The signature covers (ad_id, imp_id, event, exp) so a
 // captured URL can't be re-used for a different event.

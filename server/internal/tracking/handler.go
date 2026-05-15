@@ -89,6 +89,13 @@ func (h *Handler) ServeTrack(w http.ResponseWriter, r *http.Request) {
 	writeGIF(w, http.StatusOK)
 }
 
+// WriteOnePixelGIF writes the 1x1 transparent GIF with HTTP 200. Exported
+// so the rate-limit middleware can reuse it as its "over-limit response"
+// for /track (we never surface a 429 to a tracking pixel — players retry).
+func WriteOnePixelGIF(w http.ResponseWriter, _ *http.Request) {
+	writeGIF(w, http.StatusOK)
+}
+
 func writeGIF(w http.ResponseWriter, status int) {
 	h := w.Header()
 	h.Set("Content-Type", "image/gif")

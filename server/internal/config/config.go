@@ -35,6 +35,14 @@ type Config struct {
 	TrackingSecret   string        // HMAC-SHA256 key for tracking pixel URLs
 	TrackingTokenTTL time.Duration // how long a freshly minted pixel URL is valid
 	WorkerInterval   time.Duration // worker drain tick interval
+
+	// Phase 5 — hardening.
+	RateLimitVastRPS    float64 // sustained rate for /vast per source IP; 0 disables
+	RateLimitVastBurst  float64 // burst size for /vast
+	RateLimitTrackRPS   float64 // sustained rate for /track per source IP; 0 disables
+	RateLimitTrackBurst float64 // burst size for /track
+	RateLimitMapCap     int     // max visitor entries before eviction
+	MetricsPort         string  // worker /metrics listener port
 }
 
 // Load reads configuration from the process environment, applying
@@ -59,7 +67,37 @@ func Load() Config {
 		TrackingSecret:          getenv("TRACKING_SECRET", ""),
 		TrackingTokenTTL:        getenvDuration("TRACKING_TOKEN_TTL", 24*time.Hour),
 		WorkerInterval:          getenvDuration("WORKER_INTERVAL", 30*time.Second),
+		RateLimitVastRPS:        getenvFloat("RATE_LIMIT_VAST_RPS", 100),
+		RateLimitVastBurst:      getenvFloat("RATE_LIMIT_VAST_BURST", 200),
+		RateLimitTrackRPS:       getenvFloat("RATE_LIMIT_TRACK_RPS", 200),
+		RateLimitTrackBurst:     getenvFloat("RATE_LIMIT_TRACK_BURST", 400),
+		RateLimitMapCap:         getenvInt("RATE_LIMIT_MAP_CAP", 100000),
+		MetricsPort:             getenv("METRICS_PORT", "9100"),
 	}
+}
+
+func getenvFloat(key string, fallback float64) float64 {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
+}
+
+func getenvInt(key string, fallback int) int {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 // S3Configured reports whether enough S3 env vars are present to construct
