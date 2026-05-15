@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { ads, campaigns } from "@/lib/db/schema";
+import { env, s3Configured } from "@/lib/env";
 import { AdForm } from "@/components/ads/ad-form";
 
 import { updateAdAction } from "../../_actions";
@@ -26,6 +27,8 @@ export default async function EditAdPage({ params }: { params: Promise<{ id: str
         action={updateAdAction.bind(null, id)}
         campaigns={campaignOptions}
         defaults={row}
+        s3Configured={s3Configured}
+        s3PublicBaseUrl={env.S3_PUBLIC_BASE_URL ?? null}
       />
     </div>
   );

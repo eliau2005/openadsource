@@ -1,10 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 
 import type { Ad } from "@/lib/db/schema";
 import type { AdActionState } from "@/app/(app)/ads/_actions";
+import { CreativePicker, type CreativeValue } from "@/components/ads/creative-picker";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 type Action = (prev: AdActionState, fd: FormData) => Promise<AdActionState>;
 type CampaignOption = { id: string; name: string };
@@ -13,205 +17,149 @@ export function AdForm({
   action,
   campaigns,
   defaults,
+  s3Configured,
+  s3PublicBaseUrl,
   submitLabel = "Save",
 }: {
   action: Action;
   campaigns: CampaignOption[];
   defaults?: Partial<Ad>;
+  s3Configured: boolean;
+  s3PublicBaseUrl: string | null;
   submitLabel?: string;
 }) {
   const [state, formAction, isPending] = useActionState<AdActionState, FormData>(action, undefined);
 
-  const inputCls =
+  const initialCreative: CreativeValue | null = defaults?.mediaUrl
+    ? {
+        mediaSource: (defaults.mediaSource as "external_url" | "internal_s3") ?? "external_url",
+        mediaUrl: defaults.mediaUrl,
+        mediaMime: defaults.mediaMime ?? "video/mp4",
+        publicUrl:
+          defaults.mediaSource === "internal_s3" && s3PublicBaseUrl
+            ? `${s3PublicBaseUrl.replace(/\/$/, "")}/${defaults.mediaUrl.replace(/^\//, "")}`
+            : undefined,
+      }
+    : null;
+
+  const [creative, setCreative] = useState<CreativeValue | null>(initialCreative);
+
+  const selectCls =
     "w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm disabled:opacity-50";
 
   return (
-    <form action={formAction} className="space-y-4 max-w-2xl">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1 col-span-2">
-          <label htmlFor="campaignId" className="block text-sm font-medium">Campaign</label>
-          <select
-            id="campaignId"
-            name="campaignId"
-            defaultValue={defaults?.campaignId ?? ""}
-            disabled={isPending || campaigns.length === 0}
-            required
-            className={inputCls}
-          >
-            <option value="" disabled>
-              {campaigns.length === 0 ? "Create a campaign first" : "Pick one"}
-            </option>
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1 col-span-2">
-          <label htmlFor="name" className="block text-sm font-medium">Name</label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            defaultValue={defaults?.name ?? ""}
-            required
-            disabled={isPending}
-            className={inputCls}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="status" className="block text-sm font-medium">Status</label>
-          <select id="status" name="status" defaultValue={defaults?.status ?? "active"} disabled={isPending} className={inputCls}>
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="archived">Archived</option>
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="positionType" className="block text-sm font-medium">Position</label>
-          <select
-            id="positionType"
-            name="positionType"
-            defaultValue={defaults?.positionType ?? "pre"}
-            disabled={isPending}
-            className={inputCls}
-          >
-            <option value="pre">Pre-roll</option>
-            <option value="mid">Mid-roll</option>
-            <option value="post">Post-roll</option>
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="midRollOffset" className="block text-sm font-medium">Mid-roll offset (sec)</label>
-          <input
-            id="midRollOffset"
-            name="midRollOffset"
-            type="number"
-            min={0}
-            step={1}
-            defaultValue={defaults?.midRollOffset ?? ""}
-            disabled={isPending}
-            className={inputCls}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="priority" className="block text-sm font-medium">Priority</label>
-          <input
-            id="priority"
-            name="priority"
-            type="number"
-            min={1}
-            step={1}
-            defaultValue={defaults?.priority ?? 1}
-            disabled={isPending}
-            className={inputCls}
-          />
-        </div>
-
-        <div className="space-y-1 col-span-2">
-          <label htmlFor="landingPageUrl" className="block text-sm font-medium">Landing page URL</label>
-          <input
-            id="landingPageUrl"
-            name="landingPageUrl"
-            type="url"
-            defaultValue={defaults?.landingPageUrl ?? ""}
-            disabled={isPending}
-            placeholder="https://example.com/product"
-            className={inputCls}
-          />
-        </div>
-      </div>
-
-      <fieldset className="border border-zinc-200 dark:border-zinc-800 rounded-md p-4 space-y-3">
-        <legend className="text-sm font-medium px-1">Creative</legend>
-        <p className="text-xs text-zinc-500">
-          The dual-tab BYO / Upload picker lands in the next commit. For now, enter the URL or
-          object key directly. For <code>internal_s3</code>, the URL field holds the S3 object
-          key (e.g. <code>uploads/2026/clip.mp4</code>).
-        </p>
-
+    <form action={formAction} className="space-y-6 max-w-2xl">
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Basics</h2>
         <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label htmlFor="mediaSource" className="block text-sm font-medium">Source</label>
+          <div className="space-y-1 col-span-2">
+            <Label htmlFor="campaignId">Campaign</Label>
             <select
-              id="mediaSource"
-              name="mediaSource"
-              defaultValue={defaults?.mediaSource ?? "external_url"}
-              disabled={isPending}
-              className={inputCls}
+              id="campaignId"
+              name="campaignId"
+              defaultValue={defaults?.campaignId ?? ""}
+              disabled={isPending || campaigns.length === 0}
+              required
+              className={selectCls}
             >
-              <option value="external_url">External URL (BYO)</option>
-              <option value="internal_s3">Internal S3 (uploaded)</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="mediaMime" className="block text-sm font-medium">Mime type</label>
-            <select
-              id="mediaMime"
-              name="mediaMime"
-              defaultValue={defaults?.mediaMime ?? "video/mp4"}
-              disabled={isPending}
-              className={inputCls}
-            >
-              <option value="video/mp4">video/mp4</option>
-              <option value="application/x-mpegURL">application/x-mpegURL (HLS)</option>
-              <option value="application/vnd.apple.mpegurl">application/vnd.apple.mpegurl (HLS)</option>
-              <option value="application/dash+xml">application/dash+xml (DASH)</option>
+              <option value="" disabled>
+                {campaigns.length === 0 ? "Create a campaign first" : "Pick one"}
+              </option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           </div>
 
           <div className="space-y-1 col-span-2">
-            <label htmlFor="mediaUrl" className="block text-sm font-medium">Media URL or S3 key</label>
-            <input
-              id="mediaUrl"
-              name="mediaUrl"
-              type="text"
-              defaultValue={defaults?.mediaUrl ?? ""}
-              required
-              disabled={isPending}
-              placeholder="https://cdn.example.com/clip.mp4   or   uploads/2026/clip.mp4"
-              className={inputCls}
-            />
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" name="name" type="text" defaultValue={defaults?.name ?? ""} required disabled={isPending} />
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="mediaDurationMs" className="block text-sm font-medium">Duration (ms)</label>
-            <input id="mediaDurationMs" name="mediaDurationMs" type="number" min={0} step={1} defaultValue={defaults?.mediaDurationMs ?? ""} disabled={isPending} className={inputCls} />
+            <Label htmlFor="status">Status</Label>
+            <select id="status" name="status" defaultValue={defaults?.status ?? "active"} disabled={isPending} className={selectCls}>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="archived">Archived</option>
+            </select>
           </div>
+
           <div className="space-y-1">
-            <label htmlFor="mediaBitrateKbps" className="block text-sm font-medium">Bitrate (kbps)</label>
-            <input id="mediaBitrateKbps" name="mediaBitrateKbps" type="number" min={0} step={1} defaultValue={defaults?.mediaBitrateKbps ?? ""} disabled={isPending} className={inputCls} />
+            <Label htmlFor="positionType">Position</Label>
+            <select id="positionType" name="positionType" defaultValue={defaults?.positionType ?? "pre"} disabled={isPending} className={selectCls}>
+              <option value="pre">Pre-roll</option>
+              <option value="mid">Mid-roll</option>
+              <option value="post">Post-roll</option>
+            </select>
           </div>
+
           <div className="space-y-1">
-            <label htmlFor="mediaWidth" className="block text-sm font-medium">Width</label>
-            <input id="mediaWidth" name="mediaWidth" type="number" min={0} step={1} defaultValue={defaults?.mediaWidth ?? ""} disabled={isPending} className={inputCls} />
+            <Label htmlFor="midRollOffset">Mid-roll offset (sec)</Label>
+            <Input id="midRollOffset" name="midRollOffset" type="number" min={0} step={1} defaultValue={defaults?.midRollOffset ?? ""} disabled={isPending} />
           </div>
+
           <div className="space-y-1">
-            <label htmlFor="mediaHeight" className="block text-sm font-medium">Height</label>
-            <input id="mediaHeight" name="mediaHeight" type="number" min={0} step={1} defaultValue={defaults?.mediaHeight ?? ""} disabled={isPending} className={inputCls} />
+            <Label htmlFor="priority">Priority</Label>
+            <Input id="priority" name="priority" type="number" min={1} step={1} defaultValue={defaults?.priority ?? 1} disabled={isPending} />
+          </div>
+
+          <div className="space-y-1 col-span-2">
+            <Label htmlFor="landingPageUrl">Landing page URL</Label>
+            <Input id="landingPageUrl" name="landingPageUrl" type="url" defaultValue={defaults?.landingPageUrl ?? ""} disabled={isPending} placeholder="https://example.com/product" />
           </div>
         </div>
-      </fieldset>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Creative</h2>
+        <CreativePicker
+          value={creative}
+          onChange={setCreative}
+          s3Configured={s3Configured}
+          defaultPreviewPublicUrl={initialCreative?.publicUrl}
+        />
+        {/* Picker state drives these hidden inputs that the server action reads. */}
+        <input type="hidden" name="mediaSource" value={creative?.mediaSource ?? "external_url"} />
+        <input type="hidden" name="mediaUrl" value={creative?.mediaUrl ?? ""} />
+        <input type="hidden" name="mediaMime" value={creative?.mediaMime ?? "video/mp4"} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          Media metadata (optional)
+        </h2>
+        <p className="text-xs text-zinc-500">
+          Defaults kick in when these are blank: 1280x720 dimensions and 30s duration in the VAST
+          output.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="mediaDurationMs">Duration (ms)</Label>
+            <Input id="mediaDurationMs" name="mediaDurationMs" type="number" min={0} step={1} defaultValue={defaults?.mediaDurationMs ?? ""} disabled={isPending} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="mediaBitrateKbps">Bitrate (kbps)</Label>
+            <Input id="mediaBitrateKbps" name="mediaBitrateKbps" type="number" min={0} step={1} defaultValue={defaults?.mediaBitrateKbps ?? ""} disabled={isPending} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="mediaWidth">Width</Label>
+            <Input id="mediaWidth" name="mediaWidth" type="number" min={0} step={1} defaultValue={defaults?.mediaWidth ?? ""} disabled={isPending} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="mediaHeight">Height</Label>
+            <Input id="mediaHeight" name="mediaHeight" type="number" min={0} step={1} defaultValue={defaults?.mediaHeight ?? ""} disabled={isPending} />
+          </div>
+        </div>
+      </section>
 
       {state?.error && <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>}
 
       <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          disabled={isPending || campaigns.length === 0}
-          className="rounded-md bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium disabled:opacity-50"
-        >
+        <Button type="submit" disabled={isPending || campaigns.length === 0 || !creative}>
           {isPending ? "Saving..." : submitLabel}
-        </button>
-        <Link
-          href="/ads"
-          className="text-sm text-zinc-600 dark:text-zinc-400 underline underline-offset-4"
-        >
+        </Button>
+        <Link href="/ads" className="text-sm text-zinc-600 dark:text-zinc-400 underline underline-offset-4">
           Cancel
         </Link>
       </div>
