@@ -55,7 +55,11 @@
 
   <script>
     const DEFAULT_AD_ID = '00000000-0000-0000-0000-000000000003';
-    const DEFAULT_VAST_BASE = 'http://localhost:8088';
+    // Hardcoded to the user's WSL2 IP so the Windows browser can reach
+    // the adserver running inside the WSL VM. Change to your own WSL IP
+    // (run `wsl hostname -I` to find it) or override per-load via the
+    // ?vast= query string.
+    const DEFAULT_VAST_BASE = 'http://172.24.249.237:8088';
 
     const params = new URLSearchParams(location.search);
     document.getElementById('adId').value = params.get('ad_id') || DEFAULT_AD_ID;
@@ -93,15 +97,61 @@
         const mediaURL = mediaFile.textContent.trim();
         const impression = doc.querySelector('Impression');
         const impressionURL = impression ? impression.textContent.trim() : '';
+        const clickTrackEl = doc.querySelector('ClickTracking');
+        const clickTrackURL = clickTrackEl ? clickTrackEl.textContent.trim() : '';
 
-        let fired = false;
-        player.onplay = function () {
-          if (fired || !impressionURL) return;
-          fired = true;
+        // Parse <Tracking event="…">URL</Tracking> into a map.
+        const trackings = {};
+        for (const t of doc.querySelectorAll('TrackingEvents > Tracking')) {
+          const ev = t.getAttribute('event');
+          if (ev) trackings[ev] = t.textContent.trim();
+        }
+
+        function pixel(url, label) {
+          if (!url) return;
           const img = new Image();
-          img.src = impressionURL;
-          console.log('[test-player] impression fired:', impressionURL);
+          img.src = url;
+          console.log('[test-player] fired', label, '->', url);
+        }
+
+        // Track which events have already fired so we don't double-pixel
+        // on a paused/resumed video.
+        const fired = {
+          impression: false,
+          start: false,
+          firstQuartile: false,
+          midpoint: false,
+          thirdQuartile: false,
+          complete: false,
         };
+
+        player.onplay = function () {
+          if (!fired.impression) { fired.impression = true; pixel(impressionURL, 'impression'); }
+          if (!fired.start) { fired.start = true; pixel(trackings.start, 'start'); }
+        };
+
+        player.ontimeupdate = function () {
+          const d = player.duration || 0;
+          if (!d) return;
+          const pct = player.currentTime / d;
+          const milestones = [
+            ['firstQuartile', 0.25],
+            ['midpoint',      0.50],
+            ['thirdQuartile', 0.75],
+          ];
+          for (const [ev, threshold] of milestones) {
+            if (pct >= threshold && !fired[ev]) {
+              fired[ev] = true;
+              pixel(trackings[ev], ev);
+            }
+          }
+        };
+
+        player.onended = function () {
+          if (!fired.complete) { fired.complete = true; pixel(trackings.complete, 'complete'); }
+        };
+
+        player.onclick = function () { pixel(clickTrackURL, 'click'); };
 
         player.src = mediaURL;
         player.load();

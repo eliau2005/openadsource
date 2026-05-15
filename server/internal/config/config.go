@@ -30,6 +30,11 @@ type Config struct {
 	GeoIPDBPath             string        // optional; geo resolver stubs gracefully when missing
 	TrustedProxies          string        // comma-separated CIDR list; controls X-Forwarded-For trust
 	RegistryRefreshInterval time.Duration // TTL between snapshot reloads
+
+	// Phase 4 — tracking + worker.
+	TrackingSecret   string        // HMAC-SHA256 key for tracking pixel URLs
+	TrackingTokenTTL time.Duration // how long a freshly minted pixel URL is valid
+	WorkerInterval   time.Duration // worker drain tick interval
 }
 
 // Load reads configuration from the process environment, applying
@@ -51,6 +56,9 @@ func Load() Config {
 		GeoIPDBPath:             getenv("GEOIP_DB_PATH", ""),
 		TrustedProxies:          getenv("TRUSTED_PROXIES", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
 		RegistryRefreshInterval: getenvDuration("REGISTRY_REFRESH_INTERVAL", 30*time.Second),
+		TrackingSecret:          getenv("TRACKING_SECRET", ""),
+		TrackingTokenTTL:        getenvDuration("TRACKING_TOKEN_TTL", 24*time.Hour),
+		WorkerInterval:          getenvDuration("WORKER_INTERVAL", 30*time.Second),
 	}
 }
 

@@ -28,7 +28,9 @@ import (
 	"github.com/eliau2005/openadsource/server/internal/selection"
 	"github.com/eliau2005/openadsource/server/internal/storage"
 	"github.com/eliau2005/openadsource/server/internal/targeting"
+	"github.com/eliau2005/openadsource/server/internal/tracking"
 	"github.com/eliau2005/openadsource/server/internal/vast"
+	"time"
 )
 
 // Handler holds the dependencies needed to serve /vast. Constructed once at
@@ -40,6 +42,7 @@ type Handler struct {
 	budget   *capping.Enforcer
 	ip       *targeting.IPResolver
 	geo      targeting.GeoResolver
+	signer   *tracking.Signer
 }
 
 // New constructs a Handler. registry must already have a snapshot loaded
@@ -51,8 +54,17 @@ func New(
 	budget *capping.Enforcer,
 	ip *targeting.IPResolver,
 	geo targeting.GeoResolver,
+	signer *tracking.Signer,
 ) *Handler {
-	return &Handler{cfg: cfg, registry: reg, resolver: resolver, budget: budget, ip: ip, geo: geo}
+	return &Handler{
+		cfg:      cfg,
+		registry: reg,
+		resolver: resolver,
+		budget:   budget,
+		ip:       ip,
+		geo:      geo,
+		signer:   signer,
+	}
 }
 
 // maxBudgetRetries is how many candidates we'll cycle through when budget
@@ -151,6 +163,8 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 
 // serveAd resolves the media URL, builds the VAST, and writes the
 // response. Reused by both the selection path and the ?ad_id= test path.
+// Mints a fresh imp_id and stitches it (plus an HMAC signature shared
+// across the event family) into every tracking pixel URL.
 func (h *Handler) serveAd(w http.ResponseWriter, r *http.Request, ad *registry.Ad) {
 	mediaURL, err := h.resolver.ResolveMediaURL(r.Context(), ad.MediaSource, ad.MediaURL)
 	if err != nil {
@@ -159,10 +173,20 @@ func (h *Handler) serveAd(w http.ResponseWriter, r *http.Request, ad *registry.A
 		return
 	}
 
+	adID := ad.ID.String()
+	impID := uuid.New().String()
+	now := time.Now()
+	impressionURL := h.signedTrackingURL(adID, impID, tracking.EventImpression, now)
+	clickTrackURL := h.signedTrackingURL(adID, impID, tracking.EventClick, now)
+	quartileURLs := make(map[string]string, len(tracking.QuartileEventsInOrder))
+	for _, ev := range tracking.QuartileEventsInOrder {
+		quartileURLs[ev] = h.signedTrackingURL(adID, impID, ev, now)
+	}
+
 	body, err := vast.BuildInline(vast.InlineInput{
-		AdID:          ad.ID.String(),
+		AdID:          adID,
 		Title:         ad.Name,
-		ImpressionURL: h.impressionURL(ad.ID),
+		ImpressionURL: impressionURL,
 		MediaURL:      mediaURL,
 		MediaMime:     ad.MediaMime,
 		MediaWidth:    int(ad.MediaWidth),
@@ -170,6 +194,8 @@ func (h *Handler) serveAd(w http.ResponseWriter, r *http.Request, ad *registry.A
 		MediaBitrate:  int(ad.MediaBitrate),
 		MediaDuration: formatDuration(ad.MediaDurationMs),
 		LandingURL:    ad.LandingPageURL,
+		QuartileURLs:  quartileURLs,
+		ClickTrackURL: clickTrackURL,
 	})
 	if err != nil {
 		log.Error().Str("ad_id", ad.ID.String()).Err(err).Msg("BuildInline failed; no-fill")
@@ -188,8 +214,15 @@ func (h *Handler) writeEmpty(w http.ResponseWriter) {
 	_, _ = w.Write(body)
 }
 
-func (h *Handler) impressionURL(adID uuid.UUID) string {
-	return fmt.Sprintf("%s/track?event=impression&ad_id=%s", h.cfg.PublicBaseURL, adID.String())
+// signedTrackingURL returns the canonical signed pixel URL the player will
+// fire for `event`. The signature covers (ad_id, imp_id, event, exp) so a
+// captured URL can't be re-used for a different event.
+func (h *Handler) signedTrackingURL(adID, impID, event string, now time.Time) string {
+	sig, exp := h.signer.Sign(adID, impID, event, now)
+	return fmt.Sprintf(
+		"%s/track?event=%s&ad_id=%s&imp_id=%s&exp=%d&sig=%s",
+		h.cfg.PublicBaseURL, event, adID, impID, exp, sig,
+	)
 }
 
 func formatDuration(ms int32) string {

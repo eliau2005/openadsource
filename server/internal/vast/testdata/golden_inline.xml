@@ -4,17 +4,25 @@
     <InLine>
       <AdSystem version="1.0">OpenAdSource</AdSystem>
       <AdTitle><![CDATA[Demo Pre-roll]]></AdTitle>
-      <Impression id="imp-0"><![CDATA[http://localhost:8088/track?event=impression&ad_id=00000000-0000-0000-0000-000000000003]]></Impression>
+      <Impression id="imp-0"><![CDATA[http://localhost:8088/track?event=impression&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Impression>
       <Creatives>
         <Creative id="creative-00000000-0000-0000-0000-000000000003" sequence="1">
           <UniversalAdId idRegistry="unknown">unknown</UniversalAdId>
           <Linear>
             <Duration>00:00:10</Duration>
+            <TrackingEvents>
+              <Tracking event="start"><![CDATA[http://localhost:8088/track?event=start&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Tracking>
+              <Tracking event="firstQuartile"><![CDATA[http://localhost:8088/track?event=firstQuartile&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Tracking>
+              <Tracking event="midpoint"><![CDATA[http://localhost:8088/track?event=midpoint&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Tracking>
+              <Tracking event="thirdQuartile"><![CDATA[http://localhost:8088/track?event=thirdQuartile&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Tracking>
+              <Tracking event="complete"><![CDATA[http://localhost:8088/track?event=complete&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></Tracking>
+            </TrackingEvents>
             <MediaFiles>
               <MediaFile id="media-0" delivery="progressive" type="video/mp4" width="1280" height="720" bitrate="1500"><![CDATA[http://localhost:9000/openadsource/seed/big_buck_bunny_720p_1mb.mp4]]></MediaFile>
             </MediaFiles>
             <VideoClicks>
               <ClickThrough id="click-0"><![CDATA[https://example.com/landing]]></ClickThrough>
+              <ClickTracking id="clicktrk-0"><![CDATA[http://localhost:8088/track?event=click&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef]]></ClickTracking>
             </VideoClicks>
           </Linear>
         </Creative>

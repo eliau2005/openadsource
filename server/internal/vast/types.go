@@ -71,9 +71,24 @@ type UniversalAdID struct {
 
 // Linear is a standard pre/mid/post-roll video creative.
 type Linear struct {
-	Duration    string       `xml:"Duration"`
-	MediaFiles  MediaFiles   `xml:"MediaFiles"`
-	VideoClicks *VideoClicks `xml:"VideoClicks,omitempty"`
+	Duration       string          `xml:"Duration"`
+	TrackingEvents *TrackingEvents `xml:"TrackingEvents,omitempty"`
+	MediaFiles     MediaFiles      `xml:"MediaFiles"`
+	VideoClicks    *VideoClicks    `xml:"VideoClicks,omitempty"`
+}
+
+// TrackingEvents wraps a list of <Tracking event="…"> pixels (start,
+// firstQuartile, midpoint, thirdQuartile, complete). Optional under
+// <Linear>.
+type TrackingEvents struct {
+	Trackings []Tracking `xml:"Tracking"`
+}
+
+// Tracking is a single pixel URL fired when the player reaches the
+// associated quartile. event="…" attribute keys it; body is the URL.
+type Tracking struct {
+	Event string `xml:"event,attr"`
+	URL   string `xml:",cdata"`
 }
 
 // MediaFiles is the container for one-or-more MediaFile elements (different
@@ -94,13 +109,21 @@ type MediaFile struct {
 }
 
 // VideoClicks wraps ClickThrough (landing page) plus optional ClickTracking
-// pixels (not used in Phase 1).
+// pixels. Phase 4 emits one ClickTracking alongside the ClickThrough so the
+// player fires a signed pixel back to /track when the viewer clicks.
 type VideoClicks struct {
-	ClickThroughs []ClickThrough `xml:"ClickThrough,omitempty"`
+	ClickThroughs  []ClickThrough  `xml:"ClickThrough,omitempty"`
+	ClickTrackings []ClickTracking `xml:"ClickTracking,omitempty"`
 }
 
 // ClickThrough is the landing-page URL the player navigates to on click.
 type ClickThrough struct {
+	ID  string `xml:"id,attr"`
+	URL string `xml:",cdata"`
+}
+
+// ClickTracking is the pixel URL the player fires when the viewer clicks.
+type ClickTracking struct {
 	ID  string `xml:"id,attr"`
 	URL string `xml:",cdata"`
 }

@@ -2,6 +2,7 @@ package vast
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,10 +10,14 @@ import (
 )
 
 func sampleInput() InlineInput {
+	base := "http://localhost:8088/track?event=%s&ad_id=00000000-0000-0000-0000-000000000003&imp_id=imp-fixed-001&exp=2000000000&sig=deadbeef"
+	url := func(ev string) string {
+		return fmt.Sprintf(base, ev)
+	}
 	return InlineInput{
 		AdID:          "00000000-0000-0000-0000-000000000003",
 		Title:         "Demo Pre-roll",
-		ImpressionURL: "http://localhost:8088/track?event=impression&ad_id=00000000-0000-0000-0000-000000000003",
+		ImpressionURL: url("impression"),
 		MediaURL:      "http://localhost:9000/openadsource/seed/big_buck_bunny_720p_1mb.mp4",
 		MediaMime:     "video/mp4",
 		MediaWidth:    1280,
@@ -20,6 +25,14 @@ func sampleInput() InlineInput {
 		MediaBitrate:  1500,
 		MediaDuration: "00:00:10",
 		LandingURL:    "https://example.com/landing",
+		ClickTrackURL: url("click"),
+		QuartileURLs: map[string]string{
+			"start":         url("start"),
+			"firstQuartile": url("firstQuartile"),
+			"midpoint":      url("midpoint"),
+			"thirdQuartile": url("thirdQuartile"),
+			"complete":      url("complete"),
+		},
 	}
 }
 

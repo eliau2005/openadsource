@@ -32,6 +32,28 @@ type InlineInput struct {
 	MediaBitrate  int    // kilobits per second; 0 = omit the bitrate attribute
 	MediaDuration string // "HH:MM:SS"; empty = 00:00:30 fallback
 	LandingURL    string // optional; when empty no VideoClicks block is emitted
+
+	// QuartileURLs maps Tracking event names ("start", "firstQuartile",
+	// "midpoint", "thirdQuartile", "complete") to the signed pixel URL the
+	// player should fire. Empty map / missing keys mean "skip that event".
+	// Order in the emitted XML follows the canonical sequence, not map
+	// iteration order, so golden-file diffs stay stable.
+	QuartileURLs map[string]string
+
+	// ClickTrackURL is the signed pixel URL fired when the viewer clicks
+	// the ad (independent of ClickThrough navigation). Empty = omit.
+	ClickTrackURL string
+}
+
+// quartileEventOrder is the deterministic ordering for <Tracking> elements.
+// Must stay in sync with the slice in internal/tracking/events.go but is
+// duplicated here so the vast package has no upstream dependency on tracking.
+var quartileEventOrder = []string{
+	"start",
+	"firstQuartile",
+	"midpoint",
+	"thirdQuartile",
+	"complete",
 }
 
 // BuildInline serializes an InLine VAST 4.2 response.
@@ -102,12 +124,31 @@ func buildLinear(in InlineInput) *Linear {
 			},
 		},
 	}
-	if in.LandingURL != "" {
-		linear.VideoClicks = &VideoClicks{
-			ClickThroughs: []ClickThrough{
-				{ID: "click-0", URL: in.LandingURL},
-			},
+
+	// TrackingEvents: emitted in canonical order so any Tracking URL the
+	// caller supplied shows up where the spec puts it.
+	if len(in.QuartileURLs) > 0 {
+		trackings := make([]Tracking, 0, len(quartileEventOrder))
+		for _, ev := range quartileEventOrder {
+			if url, ok := in.QuartileURLs[ev]; ok && url != "" {
+				trackings = append(trackings, Tracking{Event: ev, URL: url})
+			}
 		}
+		if len(trackings) > 0 {
+			linear.TrackingEvents = &TrackingEvents{Trackings: trackings}
+		}
+	}
+
+	// VideoClicks: ClickThrough (landing) and/or ClickTracking (pixel).
+	if in.LandingURL != "" || in.ClickTrackURL != "" {
+		vc := &VideoClicks{}
+		if in.LandingURL != "" {
+			vc.ClickThroughs = []ClickThrough{{ID: "click-0", URL: in.LandingURL}}
+		}
+		if in.ClickTrackURL != "" {
+			vc.ClickTrackings = []ClickTracking{{ID: "clicktrk-0", URL: in.ClickTrackURL}}
+		}
+		linear.VideoClicks = vc
 	}
 	return linear
 }

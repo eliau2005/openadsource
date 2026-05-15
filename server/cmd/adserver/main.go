@@ -92,6 +92,12 @@ func main() {
 		log.Fatal().Err(err).Msg("budget enforcer init failed")
 	}
 
+	// --- tracking signer (Phase 4) ---
+	if len(cfg.TrackingSecret) < 8 {
+		log.Fatal().Msg("TRACKING_SECRET must be at least 8 chars")
+	}
+	signer := tracking.NewSigner(cfg.TrackingSecret, cfg.TrackingTokenTTL)
+
 	// --- registry refresher: load first snapshot synchronously, then run ---
 	reg := registry.New(pool, cfg.RegistryRefreshInterval, redisClient)
 	refresherDone := make(chan error, 1)
@@ -101,7 +107,7 @@ func main() {
 	}
 
 	// --- delivery handler ---
-	deliveryHandler := delivery.New(cfg, reg, resolver, budget, ipResolver, geoResolver)
+	deliveryHandler := delivery.New(cfg, reg, resolver, budget, ipResolver, geoResolver, signer)
 
 	// --- router ---
 	var healthReady atomic.Bool

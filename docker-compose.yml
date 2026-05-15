@@ -112,7 +112,9 @@ services:
       # Phase 3: decision engine knobs.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       REGISTRY_REFRESH_INTERVAL: ${REGISTRY_REFRESH_INTERVAL:-30s}
+      # Phase 4: tracking pixel signing.
       TRACKING_SECRET: ${TRACKING_SECRET}
+      TRACKING_TOKEN_TTL: ${TRACKING_TOKEN_TTL:-24h}
       GEOIP_DB_PATH: ${GEOIP_DB_PATH}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
     ports:
