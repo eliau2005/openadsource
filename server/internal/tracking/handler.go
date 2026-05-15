@@ -7,6 +7,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 )
 
 // onePixelGIF is the 43-byte canonical 1x1 transparent GIF89a — what every
@@ -53,6 +55,7 @@ func (h *Handler) ServeTrack(w http.ResponseWriter, r *http.Request) {
 	exp := parseUnix(q.Get("exp"))
 
 	if !IsTracked(event) || adID == "" || impID == "" || sig == "" || exp == 0 {
+		metrics.TrackEventsTotal.WithLabelValues(event, "invalid").Inc()
 		writeGIF(w, http.StatusNoContent)
 		return
 	}
@@ -60,6 +63,7 @@ func (h *Handler) ServeTrack(w http.ResponseWriter, r *http.Request) {
 		if err := h.signer.Verify(adID, impID, event, sig, exp, time.Now()); err != nil {
 			// Silent reject — pixel responses should never leak which
 			// validation step failed.
+			metrics.TrackEventsTotal.WithLabelValues(event, "invalid").Inc()
 			writeGIF(w, http.StatusNoContent)
 			return
 		}
@@ -71,11 +75,13 @@ func (h *Handler) ServeTrack(w http.ResponseWriter, r *http.Request) {
 		ok, err := h.client.SetNX(r.Context(), key, "1", IdempotencyTTL).Result()
 		if err != nil {
 			log.Warn().Err(err).Msg("tracking: idempotency SETNX failed; serving GIF without recording")
+			metrics.TrackEventsTotal.WithLabelValues(event, "ok").Inc()
 			writeGIF(w, http.StatusOK)
 			return
 		}
 		if !ok {
 			// Duplicate — already counted.
+			metrics.TrackEventsTotal.WithLabelValues(event, "duplicate").Inc()
 			writeGIF(w, http.StatusNoContent)
 			return
 		}
@@ -86,6 +92,7 @@ func (h *Handler) ServeTrack(w http.ResponseWriter, r *http.Request) {
 			log.Warn().Err(err).Str("key", counterKey).Msg("tracking: INCR failed")
 		}
 	}
+	metrics.TrackEventsTotal.WithLabelValues(event, "ok").Inc()
 	writeGIF(w, http.StatusOK)
 }
 

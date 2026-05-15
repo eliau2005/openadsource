@@ -20,6 +20,7 @@ import (
 	"github.com/eliau2005/openadsource/server/internal/db"
 	"github.com/eliau2005/openadsource/server/internal/delivery"
 	"github.com/eliau2005/openadsource/server/internal/httpmw"
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 	"github.com/eliau2005/openadsource/server/internal/registry"
 	"github.com/eliau2005/openadsource/server/internal/storage"
 	"github.com/eliau2005/openadsource/server/internal/targeting"
@@ -122,6 +123,7 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(httpmw.HTTPMetrics) // before route dispatch so /metrics + /healthz get counted too
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if !healthReady.Load() {
@@ -132,6 +134,10 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	// Prometheus exposition endpoint. Outside the CORS+rate-limit group so
+	// scrapes are never throttled. Server-to-server — no CORS needed.
+	r.Get("/metrics", metrics.Handler().ServeHTTP)
 
 	// --- per-IP rate limiters for /vast + /track ---
 	// Over-limit responses are protocol-natural no-fills, NOT 429: an

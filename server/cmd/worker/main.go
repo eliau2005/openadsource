@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/eliau2005/openadsource/server/internal/config"
 	"github.com/eliau2005/openadsource/server/internal/db"
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 	"github.com/eliau2005/openadsource/server/internal/tracking"
 	"github.com/eliau2005/openadsource/server/internal/worker"
 )
@@ -64,9 +66,17 @@ func main() {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
+
+	metricsPort := cfg.MetricsPort
+	if metricsPort == "" {
+		metricsPort = "9100"
+	}
+	go serveMetrics(ctx, metricsPort)
+
 	log.Info().
 		Dur("interval", interval).
 		Str("lock_id", lock.ID()).
+		Str("metrics_addr", ":"+metricsPort).
 		Msg("worker started")
 
 	ticker := time.NewTicker(interval)
@@ -84,15 +94,24 @@ func main() {
 }
 
 func runTick(ctx context.Context, lock *worker.Lock, drainer *worker.Drainer) {
+	start := time.Now()
+	result := "ok"
+	defer func() {
+		metrics.WorkerTickDuration.Observe(time.Since(start).Seconds())
+		metrics.WorkerTicksTotal.WithLabelValues(result).Inc()
+	}()
+
 	tickCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	ok, err := lock.TryAcquire(tickCtx)
 	if err != nil {
+		result = "error"
 		log.Warn().Err(err).Msg("worker tick: lock acquire failed; skipping")
 		return
 	}
 	if !ok {
+		result = "locked"
 		log.Debug().Msg("worker tick: another replica holds the lock; skipping")
 		return
 	}
@@ -103,6 +122,29 @@ func runTick(ctx context.Context, lock *worker.Lock, drainer *worker.Drainer) {
 	}()
 
 	if err := drainer.Tick(tickCtx); err != nil && !errors.Is(err, context.Canceled) {
+		result = "error"
 		log.Warn().Err(err).Msg("worker tick: drain failed")
+	}
+}
+
+// serveMetrics runs a tiny HTTP listener dedicated to the Prometheus
+// exposition format. Shares the global collectors with the adserver via
+// the internal/metrics package — no separate registry.
+func serveMetrics(ctx context.Context, port string) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler())
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Warn().Err(err).Str("addr", srv.Addr).Msg("worker metrics listener exited")
 	}
 }

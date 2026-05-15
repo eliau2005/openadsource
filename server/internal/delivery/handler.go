@@ -24,6 +24,7 @@ import (
 
 	"github.com/eliau2005/openadsource/server/internal/capping"
 	"github.com/eliau2005/openadsource/server/internal/config"
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 	"github.com/eliau2005/openadsource/server/internal/registry"
 	"github.com/eliau2005/openadsource/server/internal/selection"
 	"github.com/eliau2005/openadsource/server/internal/storage"
@@ -161,6 +162,7 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 			h.writeEmpty(w)
 			return
 		}
+		metrics.BudgetRejectionsTotal.Inc()
 		// Mark exhausted by ad index and retry.
 		idx := -1
 		for i, a := range snap.Ads {
@@ -194,6 +196,7 @@ func (h *Handler) checkFreq(r *http.Request, uid string, ad *registry.Ad) bool {
 		return true
 	}
 	if errors.Is(err, capping.ErrFreqCapExceeded) {
+		metrics.FreqRejectionsTotal.Inc()
 		return false
 	}
 	log.Warn().Err(err).Msg("freq enforcer error; allowing the candidate")
@@ -272,10 +275,12 @@ func (h *Handler) serveAd(w http.ResponseWriter, r *http.Request, ad *registry.A
 		h.writeEmpty(w)
 		return
 	}
+	metrics.VASTResponsesTotal.WithLabelValues("inline").Inc()
 	_, _ = w.Write(body)
 }
 
 func (h *Handler) writeEmpty(w http.ResponseWriter) {
+	metrics.VASTResponsesTotal.WithLabelValues("empty").Inc()
 	body, err := vast.BuildEmpty()
 	if err != nil {
 		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<VAST version="4.2"></VAST>` + "\n"))

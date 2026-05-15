@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 	"github.com/eliau2005/openadsource/server/internal/registry"
 	"github.com/eliau2005/openadsource/server/internal/tracking"
 )
@@ -79,6 +80,9 @@ func (d *Drainer) Tick(ctx context.Context) error {
 				if err != nil {
 					log.Warn().Err(err).Str("key", redisKey).Msg("worker tick: GETDEL failed")
 					continue
+				}
+				if val > 0 {
+					metrics.WorkerDrainedTotal.WithLabelValues(ev).Add(float64(val))
 				}
 				switch ev {
 				case tracking.EventImpression:
@@ -199,6 +203,7 @@ func (d *Drainer) reconcileBudgets(ctx context.Context, snap *registry.Snapshot)
 		}
 		if tag.RowsAffected() > 0 {
 			paused++
+			metrics.WorkerCampaignsPausedTotal.Inc()
 			log.Info().Str("campaign", cmpID.String()).Int64("imps", count).Int32("cap", cap).Msg("campaign paused (budget exhausted)")
 		}
 	}

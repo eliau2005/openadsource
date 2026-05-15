@@ -21,3 +21,10 @@ services:
       # The base compose already publishes 9000; this overlay adds the
       # console (9001) for local browsing.
       - "9001:9001"
+
+  worker:
+    ports:
+      # Phase 5: publish the worker's Prometheus /metrics listener so a
+      # local Prometheus / curl can scrape oas_worker_* without
+      # docker-execing into the container.
+      - "9100:9100"

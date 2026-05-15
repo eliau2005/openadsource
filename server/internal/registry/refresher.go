@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+
+	"github.com/eliau2005/openadsource/server/internal/metrics"
 )
 
 // InvalidateChannel is the Redis pub/sub channel the dashboard publishes to
@@ -66,10 +68,13 @@ func (r *Refresher) WaitReady(ctx context.Context) error {
 // Reload runs a single load cycle. Exposed for tests + the boot sequence
 // (which wants to surface the first error).
 func (r *Refresher) Reload(ctx context.Context) error {
+	start := time.Now()
 	snap, err := Load(ctx, r.pool)
 	if err != nil {
 		return fmt.Errorf("snapshot load: %w", err)
 	}
+	metrics.SnapshotLoadDuration.Observe(time.Since(start).Seconds())
+	metrics.SnapshotAds.Set(float64(len(snap.Ads)))
 	r.snapshot.Store(snap)
 	r.readyOnce.Do(func() { close(r.ready) })
 	log.Info().
