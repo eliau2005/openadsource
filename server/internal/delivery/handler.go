@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -31,7 +32,6 @@ import (
 	"github.com/eliau2005/openadsource/server/internal/targeting"
 	"github.com/eliau2005/openadsource/server/internal/tracking"
 	"github.com/eliau2005/openadsource/server/internal/vast"
-	"time"
 )
 
 // Handler holds the dependencies needed to serve /vast. Constructed once at
