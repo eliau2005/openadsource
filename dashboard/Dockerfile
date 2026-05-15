@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- deps ----------
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
 # ---------- builder ----------
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
@@ -19,7 +19,7 @@ ENV JWT_SECRET=placeholder-build-time-key-replaced-at-runtime
 RUN npm run build
 
 # ---------- runner ----------
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
