@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenAdSource - Test Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+           max-width: 920px; margin: 2em auto; padding: 0 1em; color: #222; }
+    h1 { margin-bottom: 0.2em; }
+    p.lead { color: #555; margin-top: 0; }
+    .row { margin: 1em 0; display: flex; gap: 0.5em; flex-wrap: wrap; align-items: center; }
+    .row input { padding: 0.4em; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+    .row input[type=text] { flex: 1; min-width: 280px; }
+    button { padding: 0.5em 1em; cursor: pointer; }
+    video { width: 100%; max-width: 720px; background: #000; display: block; }
+    .status { display: inline-block; padding: 0.25em 0.6em; border-radius: 3px;
+              font-size: 13px; font-weight: 500; }
+    .status.ok   { background: #d4edda; color: #155724; }
+    .status.err  { background: #f8d7da; color: #721c24; }
+    .status.work { background: #fff3cd; color: #856404; }
+    pre { background: #f6f8fa; padding: 1em; overflow: auto; font-size: 12px;
+          max-height: 280px; border: 1px solid #e1e4e8; border-radius: 4px; }
+    code { font-family: ui-monospace, SFMono-Regular, monospace; }
+    .footnote { font-size: 12px; color: #777; margin-top: 2em; }
+  </style>
+</head>
+<body>
+  <h1>OpenAdSource - Test Player</h1>
+  <p class="lead">
+    Fetches <code>GET /vast?ad_id=&lt;uuid&gt;</code>, parses the first
+    <code>&lt;MediaFile&gt;</code>, plays it in a video element, and fires
+    the <code>&lt;Impression&gt;</code> URL on the first <code>play</code>
+    event.
+  </p>
+
+  <div class="row">
+    <label>Ad ID:&nbsp;<input id="adId" type="text" size="40"></label>
+  </div>
+  <div class="row">
+    <label>VAST base:&nbsp;<input id="vastBase" type="text" size="40"></label>
+    <button id="loadBtn" type="button">Reload</button>
+    <span id="status" class="status work">idle</span>
+  </div>
+
+  <video id="player" controls playsinline preload="metadata"></video>
+
+  <h3>VAST response</h3>
+  <pre id="vastXml">(none yet)</pre>
+
+  <p class="footnote">
+    Open with <code>?ad_id=&lt;uuid&gt;</code> or
+    <code>?vast=&lt;base-url&gt;</code> to override the defaults.
+  </p>
+
+  <script>
+    const DEFAULT_AD_ID = '00000000-0000-0000-0000-000000000003';
+    const DEFAULT_VAST_BASE = 'http://localhost:8088';
+
+    const params = new URLSearchParams(location.search);
+    document.getElementById('adId').value = params.get('ad_id') || DEFAULT_AD_ID;
+    document.getElementById('vastBase').value = params.get('vast') || DEFAULT_VAST_BASE;
+
+    const statusEl = document.getElementById('status');
+    const xmlEl = document.getElementById('vastXml');
+    const player = document.getElementById('player');
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + cls;
+    }
+
+    async function loadAd() {
+      const adId = document.getElementById('adId').value.trim();
+      const base = document.getElementById('vastBase').value.trim().replace(/\/$/, '');
+      setStatus('fetching ' + base + '/vast...', 'work');
+      try {
+        const resp = await fetch(base + '/vast?ad_id=' + encodeURIComponent(adId));
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const xml = await resp.text();
+        xmlEl.textContent = xml;
+
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const parseErr = doc.querySelector('parsererror');
+        if (parseErr) throw new Error('XML parse error');
+
+        const mediaFile = doc.querySelector('MediaFile');
+        if (!mediaFile) {
+          setStatus('no-fill (no MediaFile in response)', 'err');
+          player.removeAttribute('src');
+          return;
+        }
+        const mediaURL = mediaFile.textContent.trim();
+        const impression = doc.querySelector('Impression');
+        const impressionURL = impression ? impression.textContent.trim() : '';
+
+        let fired = false;
+        player.onplay = function () {
+          if (fired || !impressionURL) return;
+          fired = true;
+          const img = new Image();
+          img.src = impressionURL;
+          console.log('[test-player] impression fired:', impressionURL);
+        };
+
+        player.src = mediaURL;
+        player.load();
+        setStatus('loaded OK - hit play', 'ok');
+      } catch (e) {
+        console.error(e);
+        setStatus('error: ' + e.message, 'err');
+      }
+    }
+
+    document.getElementById('loadBtn').addEventListener('click', loadAd);
+    loadAd();
+  </script>
+</body>
+</html>

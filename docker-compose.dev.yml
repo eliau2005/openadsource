@@ -18,5 +18,6 @@ services:
 
   minio:
     ports:
-      - "9000:9000"
+      # The base compose already publishes 9000; this overlay adds the
+      # console (9001) for local browsing.
       - "9001:9001"
