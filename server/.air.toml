@@ -1,0 +1,19 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/adserver"
+  cmd = "go build -o ./tmp/adserver ./cmd/adserver"
+  delay = 500
+  exclude_dir = ["tmp", "vendor", "migrations", "scripts"]
+  include_ext = ["go"]
+  kill_delay = "1s"
+  log = "build-errors.log"
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

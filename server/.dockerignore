@@ -1,0 +1,10 @@
+tmp/
+vendor/
+*.test
+*.out
+.git/
+.gitignore
+.golangci.yml
+.air.toml
+Dockerfile
+build-errors.log
