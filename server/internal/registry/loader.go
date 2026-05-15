@@ -22,10 +22,19 @@ SELECT a.id, a.campaign_id, a.name,
        COALESCE(a.media_width, 0), COALESCE(a.media_height, 0),
        COALESCE(a.media_bitrate_kbps, 0),
        c.end_date, COALESCE(c.total_budget_impressions, 0),
-       ct.countries, ct.devices
+       ct.countries, ct.devices,
+       COALESCE(cr.max_impressions, 0),
+       COALESCE(cr.time_window_seconds, 0)
 FROM ads a
 JOIN campaigns c ON c.id = a.campaign_id
 LEFT JOIN campaign_targeting ct ON ct.campaign_id = c.id
+LEFT JOIN LATERAL (
+    SELECT max_impressions, time_window_seconds
+    FROM cap_rules
+    WHERE cap_rules.ad_id = a.id
+    ORDER BY created_at DESC
+    LIMIT 1
+) cr ON true
 WHERE a.status = 'active'
   AND c.status = 'active'
   AND (c.start_date IS NULL OR c.start_date <= now())
@@ -56,6 +65,8 @@ func Load(ctx context.Context, pool *pgxpool.Pool) (*Snapshot, error) {
 			budget    int32
 			countries []string
 			devices   []string
+			capMax    int32
+			capWindow int32
 		)
 		if err := rows.Scan(
 			&ad.ID, &ad.CampaignID, &ad.Name,
@@ -66,12 +77,15 @@ func Load(ctx context.Context, pool *pgxpool.Pool) (*Snapshot, error) {
 			&ad.MediaWidth, &ad.MediaHeight, &ad.MediaBitrate,
 			&endDate, &budget,
 			&countries, &devices,
+			&capMax, &capWindow,
 		); err != nil {
 			return nil, fmt.Errorf("registry load scan: %w", err)
 		}
 		ad.BudgetTotal = budget
 		ad.Countries = normaliseCountries(countries)
 		ad.Devices = normaliseDevices(devices)
+		ad.CapMaxImpressions = capMax
+		ad.CapTimeWindowSecs = capWindow
 		ads = append(ads, &ad)
 		endDates = append(endDates, endDate)
 	}

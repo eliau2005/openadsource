@@ -38,6 +38,12 @@ type Ad struct {
 	// queried for it without joining back.
 	BudgetTotal int32
 
+	// Per-user-per-ad frequency cap. 0 = no cap rule for this ad. When
+	// present, the delivery handler runs capping.FrequencyEnforcer.
+	// TryConsume in the budget-retry loop, before TryReserve.
+	CapMaxImpressions int32
+	CapTimeWindowSecs int32
+
 	// PacingWeight is the snapshot-time pacing target — selection uses it
 	// as the weight in weighted-random tie-breaking inside a priority
 	// bucket. Recomputed on every reload.

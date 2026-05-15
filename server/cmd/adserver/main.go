@@ -91,12 +91,17 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("budget enforcer init failed")
 	}
+	freq, err := capping.NewFrequencyEnforcer(ctx, redisClient)
+	if err != nil {
+		log.Fatal().Err(err).Msg("freq enforcer init failed")
+	}
 
 	// --- tracking signer (Phase 4) ---
 	if len(cfg.TrackingSecret) < 8 {
 		log.Fatal().Msg("TRACKING_SECRET must be at least 8 chars")
 	}
 	signer := tracking.NewSigner(cfg.TrackingSecret, cfg.TrackingTokenTTL)
+	trackHandler := tracking.NewHandler(signer, redisClient)
 
 	// --- registry refresher: load first snapshot synchronously, then run ---
 	reg := registry.New(pool, cfg.RegistryRefreshInterval, redisClient)
@@ -107,7 +112,7 @@ func main() {
 	}
 
 	// --- delivery handler ---
-	deliveryHandler := delivery.New(cfg, reg, resolver, budget, ipResolver, geoResolver, signer)
+	deliveryHandler := delivery.New(cfg, reg, resolver, budget, freq, ipResolver, geoResolver, signer)
 
 	// --- router ---
 	var healthReady atomic.Bool
@@ -131,7 +136,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(httpmw.CORS("*"))
 		r.Get("/vast", deliveryHandler.ServeVAST)
-		r.Get("/track", tracking.Stub)
+		r.Get("/track", trackHandler.ServeTrack)
 		preflight := func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}

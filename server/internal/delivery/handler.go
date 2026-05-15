@@ -40,6 +40,7 @@ type Handler struct {
 	registry *registry.Refresher
 	resolver storage.Resolver
 	budget   *capping.Enforcer
+	freq     *capping.FrequencyEnforcer // nil-safe (dev without Redis)
 	ip       *targeting.IPResolver
 	geo      targeting.GeoResolver
 	signer   *tracking.Signer
@@ -52,6 +53,7 @@ func New(
 	reg *registry.Refresher,
 	resolver storage.Resolver,
 	budget *capping.Enforcer,
+	freq *capping.FrequencyEnforcer,
 	ip *targeting.IPResolver,
 	geo targeting.GeoResolver,
 	signer *tracking.Signer,
@@ -61,6 +63,7 @@ func New(
 		registry: reg,
 		resolver: resolver,
 		budget:   budget,
+		freq:     freq,
 		ip:       ip,
 		geo:      geo,
 		signer:   signer,
@@ -104,8 +107,15 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 		req.Device = targeting.ClassifyUA(r.UserAgent())
 	}
 
+	// Resolve user_id from query / cookie / mint. SetCookie writes a
+	// fresh oas_uid back to the browser when we minted a UUID.
+	uid, setCookie := tracking.Resolve(r)
+	if setCookie {
+		tracking.SetUIDCookie(w, uid, false /* secure=false for the http dev deploy */)
+	}
+
 	// Test override: ?ad_id=<uuid> bypasses selection but still goes
-	// through budget enforcement. Lookup stays memory-only.
+	// through freq + budget enforcement. Lookup stays memory-only.
 	if rawID := q.Get("ad_id"); rawID != "" {
 		id, err := uuid.Parse(rawID)
 		if err != nil {
@@ -117,12 +127,16 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 			h.writeEmpty(w)
 			return
 		}
+		if !h.checkFreq(r, uid, ad) || !h.checkBudget(r, ad) {
+			h.writeEmpty(w)
+			return
+		}
 		h.serveAd(w, r, ad)
 		return
 	}
 
 	// Selection loop — retry up to maxBudgetRetries candidates, excluding
-	// any whose budget was rejected by Redis.
+	// any whose freq cap or campaign budget was rejected by Redis.
 	var excluded map[int]bool
 	for attempt := 0; attempt < maxBudgetRetries; attempt++ {
 		req.Exclude = excluded
@@ -131,6 +145,12 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 			h.writeEmpty(w)
 			return
 		}
+		// Freq cap (per user-per-ad). Skipped when no rule applies.
+		if !h.checkFreq(r, uid, cand) {
+			excluded = addExcluded(excluded, snap, cand)
+			continue
+		}
+		// Budget (per campaign).
 		_, err := h.budget.TryReserve(r.Context(), cand.CampaignID.String(), cand.BudgetTotal)
 		if err == nil {
 			h.serveAd(w, r, cand)
@@ -159,6 +179,56 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 		excluded[idx] = true
 	}
 	h.writeEmpty(w)
+}
+
+// checkFreq returns true when the ad has no cap rule or the cap-rule INCR
+// fit within the configured budget. Errors other than ErrFreqCapExceeded
+// are logged + treated as "let it through" — the request shouldn't fail
+// closed on a Redis hiccup.
+func (h *Handler) checkFreq(r *http.Request, uid string, ad *registry.Ad) bool {
+	if h.freq == nil || ad.CapMaxImpressions <= 0 {
+		return true
+	}
+	err := h.freq.TryConsume(r.Context(), uid, ad.ID.String(), ad.CapMaxImpressions, ad.CapTimeWindowSecs)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, capping.ErrFreqCapExceeded) {
+		return false
+	}
+	log.Warn().Err(err).Msg("freq enforcer error; allowing the candidate")
+	return true
+}
+
+// checkBudget is the single-shot equivalent of the selection-loop budget
+// branch, for the ?ad_id= test path.
+func (h *Handler) checkBudget(r *http.Request, ad *registry.Ad) bool {
+	_, err := h.budget.TryReserve(r.Context(), ad.CampaignID.String(), ad.BudgetTotal)
+	if err == nil {
+		return true
+	}
+	if !errors.Is(err, capping.BudgetExhausted) {
+		log.Warn().Err(err).Msg("budget enforcer error in ad_id path")
+	}
+	return false
+}
+
+func addExcluded(excluded map[int]bool, snap *registry.Snapshot, cand *registry.Ad) map[int]bool {
+	idx := -1
+	for i, a := range snap.Ads {
+		if a == cand {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return excluded
+	}
+	if excluded == nil {
+		excluded = make(map[int]bool, maxBudgetRetries)
+	}
+	excluded[idx] = true
+	return excluded
 }
 
 // serveAd resolves the media URL, builds the VAST, and writes the
