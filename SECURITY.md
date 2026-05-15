@@ -12,7 +12,7 @@ is documented in [`docs/self-hosting.md`](./docs/self-hosting.md).
 request for a suspected vulnerability.** Public disclosure before a
 fix ships can expose every operator running the stack.
 
-Email **security@example.invalid** with:
+Email **eliau.elkouby@gmail.com** with:
 
 - The affected version — a release tag (e.g. `v1.0.0`) or a commit
   SHA from the `main` branch.
