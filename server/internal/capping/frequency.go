@@ -9,7 +9,9 @@ import (
 )
 
 // freqScript: KEYS[1] = "user:{uid}:ad:{ad_id}:count",
-//             ARGV[1] = max_impressions, ARGV[2] = time_window_seconds.
+//
+//	ARGV[1] = max_impressions, ARGV[2] = time_window_seconds.
+//
 // INCR; on first set establish the EXPIRE; if cap exceeded DECR back and
 // return -1 so the selector tries another candidate.
 const freqScript = `
@@ -77,4 +79,3 @@ func (e *FrequencyEnforcer) TryConsume(ctx context.Context, userID, adID string,
 	}
 	return fmt.Errorf("freq enforcer redis call: %w", err)
 }
-

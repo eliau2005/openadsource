@@ -27,10 +27,10 @@ end
 return n
 `
 
-// BudgetExhausted is returned by TryReserve when the campaign has hit its
+// ErrBudgetExhausted is returned by TryReserve when the campaign has hit its
 // total_budget_impressions ceiling. Handlers should treat it as "drop this
 // candidate" and try the next one.
-var BudgetExhausted = errors.New("campaign budget exhausted")
+var ErrBudgetExhausted = errors.New("campaign budget exhausted")
 
 // Enforcer wraps the Lua script + EVALSHA cache. Construct one per process;
 // it's goroutine-safe. A nil Enforcer always succeeds (handy for tests and
@@ -56,7 +56,7 @@ func New(ctx context.Context, client *redis.Client) (*Enforcer, error) {
 
 // TryReserve atomically reserves a single impression slot for the given
 // campaign. Returns the new in-flight total on success, or
-// BudgetExhausted when the campaign has already served budget impressions.
+// ErrBudgetExhausted when the campaign has already served budget impressions.
 // A nil receiver always succeeds (dev mode without Redis).
 //
 // cap == 0 means unlimited; the script in that case always returns the
@@ -70,7 +70,7 @@ func (e *Enforcer) TryReserve(ctx context.Context, campaignID string, cap int32)
 	res, err := e.client.EvalSha(ctx, e.sha, keys, args...).Int64()
 	if err == nil {
 		if res == -1 {
-			return 0, BudgetExhausted
+			return 0, ErrBudgetExhausted
 		}
 		return res, nil
 	}
@@ -80,7 +80,7 @@ func (e *Enforcer) TryReserve(ctx context.Context, campaignID string, cap int32)
 		res, err = e.client.Eval(ctx, budgetScript, keys, args...).Int64()
 		if err == nil {
 			if res == -1 {
-				return 0, BudgetExhausted
+				return 0, ErrBudgetExhausted
 			}
 			return res, nil
 		}

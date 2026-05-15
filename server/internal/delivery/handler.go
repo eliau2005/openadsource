@@ -157,7 +157,7 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 			h.serveAd(w, r, cand)
 			return
 		}
-		if !errors.Is(err, capping.BudgetExhausted) {
+		if !errors.Is(err, capping.ErrBudgetExhausted) {
 			log.Warn().Err(err).Msg("budget enforcer error; treating as no-fill")
 			h.writeEmpty(w)
 			return
@@ -210,7 +210,7 @@ func (h *Handler) checkBudget(r *http.Request, ad *registry.Ad) bool {
 	if err == nil {
 		return true
 	}
-	if !errors.Is(err, capping.BudgetExhausted) {
+	if !errors.Is(err, capping.ErrBudgetExhausted) {
 		log.Warn().Err(err).Msg("budget enforcer error in ad_id path")
 	}
 	return false

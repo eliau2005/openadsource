@@ -71,7 +71,7 @@ func (r *resolver) ResolveMediaURL(ctx context.Context, mediaSource, mediaURL st
 		if r.publicBaseURL != "" {
 			return fmt.Sprintf("%s/%s", r.publicBaseURL, strings.TrimLeft(key, "/")), nil
 		}
-		var p presigner = r.presignFn
+		var p = r.presignFn
 		if p == nil {
 			p = r.s3
 		}

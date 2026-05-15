@@ -101,7 +101,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 	var msgs <-chan *redis.Message
 	if r.redis != nil {
 		pubsub = r.redis.Subscribe(ctx, InvalidateChannel)
-		defer pubsub.Close()
+		defer func() { _ = pubsub.Close() }()
 		msgs = pubsub.Channel()
 		log.Info().Str("channel", InvalidateChannel).Msg("registry subscribed to invalidation channel")
 	}

@@ -35,7 +35,7 @@ func makeTestSnapshot(t *testing.T, n int) *Snapshot {
 
 func TestBuildSnapshot_WildcardFolding(t *testing.T) {
 	ads := []*Ad{
-		{ID: uuid.New(), CampaignID: uuid.New(), PositionType: "pre", Priority: 1},                // wildcard everything
+		{ID: uuid.New(), CampaignID: uuid.New(), PositionType: "pre", Priority: 1},                            // wildcard everything
 		{ID: uuid.New(), CampaignID: uuid.New(), PositionType: "pre", Priority: 1, Countries: []string{"US"}}, // US only
 		{ID: uuid.New(), CampaignID: uuid.New(), PositionType: "pre", Priority: 1, Countries: []string{"IL"}}, // IL only
 	}

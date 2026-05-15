@@ -47,18 +47,18 @@ func buildBenchSnapshot(b *testing.B) (*registry.Snapshot, []string) {
 				off = int32(5 + r.Intn(50))
 			}
 			ads = append(ads, &registry.Ad{
-				ID:           uuid.New(),
-				CampaignID:   campID,
-				Name:         "ad",
-				PositionType: pos,
+				ID:            uuid.New(),
+				CampaignID:    campID,
+				Name:          "ad",
+				PositionType:  pos,
 				MidRollOffset: off,
-				Priority:     pri,
-				MediaSource:  "external_url",
-				MediaURL:     "https://example.com/x.mp4",
-				MediaMime:    "video/mp4",
-				Countries:    camCountries,
-				Devices:      camDevices,
-				PacingWeight: 1.0 + r.Float64(),
+				Priority:      pri,
+				MediaSource:   "external_url",
+				MediaURL:      "https://example.com/x.mp4",
+				MediaMime:     "video/mp4",
+				Countries:     camCountries,
+				Devices:       camDevices,
+				PacingWeight:  1.0 + r.Float64(),
 			})
 		}
 	}

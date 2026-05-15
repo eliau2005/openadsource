@@ -70,7 +70,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("geoip resolver init failed")
 	}
-	defer geoResolver.Close()
+	defer func() { _ = geoResolver.Close() }()
 
 	// --- redis + budget enforcer (optional in dev) ---
 	var redisClient *redis.Client
@@ -84,7 +84,7 @@ func main() {
 			log.Fatal().Err(err).Msg("redis unreachable")
 		}
 		log.Info().Msg("redis connected")
-		defer redisClient.Close()
+		defer func() { _ = redisClient.Close() }()
 	} else {
 		log.Info().Msg("redis not configured; budget enforcement will be a no-op stub")
 	}

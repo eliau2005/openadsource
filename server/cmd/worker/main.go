@@ -57,7 +57,7 @@ func main() {
 	if err := rc.Ping(ctx).Err(); err != nil {
 		log.Fatal().Err(err).Msg("redis unreachable")
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	lock := worker.NewLock(rc, 60_000)
 	drainer := worker.New(pool, rc, tracking.TrackedEvents)
