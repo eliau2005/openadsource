@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/eliau2005/openadsource/server/internal/config"
-	"github.com/eliau2005/openadsource/server/internal/db"
 )
 
 const (
@@ -33,11 +32,12 @@ type presigner interface {
 	Presign(ctx context.Context, key string, ttl time.Duration) (string, error)
 }
 
-// Resolver turns a database row into a playable URL plus its MIME type. The
-// MIME is returned alongside the URL because the storage backend (presigning
-// vs public base URL) is independent of the underlying file's codec.
+// Resolver turns a (media_source, media_url) pair into a playable URL. The
+// caller keeps mime since the resolver never changes it. Refactored from
+// the original db.GetAdByIDRow signature in Phase 3 so both the sqlc row
+// type and the in-memory registry.Ad can drive it without adapters.
 type Resolver interface {
-	ResolveMediaURL(ctx context.Context, ad db.GetAdByIDRow) (url string, mime string, err error)
+	ResolveMediaURL(ctx context.Context, mediaSource, mediaURL string) (string, error)
 }
 
 // New constructs the appropriate resolver. If S3 isn't configured (s3 == nil
@@ -46,9 +46,9 @@ type Resolver interface {
 // because internal_s3 inserts only occur when S3 is reachable.
 func New(cfg config.Config, s3 *S3Client) Resolver {
 	return &resolver{
-		s3:             s3,
-		publicBaseURL:  strings.TrimRight(cfg.S3PublicBaseURL, "/"),
-		presignTTL:     PresignTTL,
+		s3:            s3,
+		publicBaseURL: strings.TrimRight(cfg.S3PublicBaseURL, "/"),
+		presignTTL:    PresignTTL,
 	}
 }
 
@@ -61,31 +61,30 @@ type resolver struct {
 	presignFn presigner
 }
 
-func (r *resolver) ResolveMediaURL(ctx context.Context, ad db.GetAdByIDRow) (string, string, error) {
-	switch ad.MediaSource {
+func (r *resolver) ResolveMediaURL(ctx context.Context, mediaSource, mediaURL string) (string, error) {
+	switch mediaSource {
 	case SourceExternalURL:
-		return ad.MediaUrl, ad.MediaMime, nil
+		return mediaURL, nil
 
 	case SourceInternalS3:
-		key := ad.MediaUrl
+		key := mediaURL
 		if r.publicBaseURL != "" {
-			return fmt.Sprintf("%s/%s", r.publicBaseURL, strings.TrimLeft(key, "/")), ad.MediaMime, nil
+			return fmt.Sprintf("%s/%s", r.publicBaseURL, strings.TrimLeft(key, "/")), nil
 		}
-		// Fall through to presigning.
 		var p presigner = r.presignFn
 		if p == nil {
 			p = r.s3
 		}
 		if p == nil {
-			return "", "", errors.New("internal_s3 ad but no S3 client or public base URL configured")
+			return "", errors.New("internal_s3 ad but no S3 client or public base URL configured")
 		}
 		url, err := p.Presign(ctx, key, r.presignTTL)
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
-		return url, ad.MediaMime, nil
+		return url, nil
 
 	default:
-		return "", "", fmt.Errorf("unknown media_source %q", ad.MediaSource)
+		return "", fmt.Errorf("unknown media_source %q", mediaSource)
 	}
 }

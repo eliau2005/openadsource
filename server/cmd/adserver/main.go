@@ -5,19 +5,24 @@ import (
 	"errors"
 	"net/http"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/eliau2005/openadsource/server/internal/capping"
 	"github.com/eliau2005/openadsource/server/internal/config"
 	"github.com/eliau2005/openadsource/server/internal/db"
 	"github.com/eliau2005/openadsource/server/internal/delivery"
 	"github.com/eliau2005/openadsource/server/internal/httpmw"
+	"github.com/eliau2005/openadsource/server/internal/registry"
 	"github.com/eliau2005/openadsource/server/internal/storage"
+	"github.com/eliau2005/openadsource/server/internal/targeting"
 	"github.com/eliau2005/openadsource/server/internal/tracking"
 )
 
@@ -37,14 +42,12 @@ func main() {
 		log.Fatal().Err(err).Msg("db pool init failed")
 	}
 	defer pool.Close()
-
 	if err := db.PingWithRetry(ctx, pool, 15, 2*time.Second); err != nil {
 		log.Fatal().Err(err).Msg("postgres unreachable")
 	}
 	log.Info().Msg("postgres connected")
 
-	queries := db.New(pool)
-
+	// --- storage ---
 	var s3Client *storage.S3Client
 	if cfg.S3Configured() {
 		s3Client, err = storage.NewS3Client(ctx, cfg)
@@ -57,7 +60,52 @@ func main() {
 	}
 	resolver := storage.New(cfg, s3Client)
 
-	deliveryHandler := delivery.New(cfg, queries, resolver)
+	// --- targeting extractors ---
+	ipResolver, err := targeting.NewIPResolver(cfg.TrustedProxies)
+	if err != nil {
+		log.Fatal().Err(err).Msg("trusted proxies config invalid")
+	}
+	geoResolver, err := targeting.NewGeoResolver(cfg.GeoIPDBPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("geoip resolver init failed")
+	}
+	defer geoResolver.Close()
+
+	// --- redis + budget enforcer (optional in dev) ---
+	var redisClient *redis.Client
+	if cfg.RedisURL != "" {
+		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			log.Fatal().Err(err).Msg("REDIS_URL parse failed")
+		}
+		redisClient = redis.NewClient(opt)
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Fatal().Err(err).Msg("redis unreachable")
+		}
+		log.Info().Msg("redis connected")
+		defer redisClient.Close()
+	} else {
+		log.Info().Msg("redis not configured; budget enforcement will be a no-op stub")
+	}
+	budget, err := capping.New(ctx, redisClient)
+	if err != nil {
+		log.Fatal().Err(err).Msg("budget enforcer init failed")
+	}
+
+	// --- registry refresher: load first snapshot synchronously, then run ---
+	reg := registry.New(pool, cfg.RegistryRefreshInterval, redisClient)
+	refresherDone := make(chan error, 1)
+	go func() { refresherDone <- reg.Run(ctx) }()
+	if err := reg.WaitReady(ctx); err != nil {
+		log.Fatal().Err(err).Msg("registry never became ready")
+	}
+
+	// --- delivery handler ---
+	deliveryHandler := delivery.New(cfg, reg, resolver, budget, ipResolver, geoResolver)
+
+	// --- router ---
+	var healthReady atomic.Bool
+	healthReady.Store(true)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -65,6 +113,11 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		if !healthReady.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("registry not ready"))
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -73,9 +126,6 @@ func main() {
 		r.Use(httpmw.CORS("*"))
 		r.Get("/vast", deliveryHandler.ServeVAST)
 		r.Get("/track", tracking.Stub)
-		// OPTIONS handlers are required so chi routes preflight requests
-		// through the CORS middleware (which short-circuits with 204).
-		// Without them, chi returns 405 before the middleware runs.
 		preflight := func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -105,5 +155,8 @@ func main() {
 		log.Fatal().Err(err).Msg("listen failed")
 	}
 	<-idleConnsClosed
+	if err := <-refresherDone; err != nil && !errors.Is(err, context.Canceled) {
+		log.Error().Err(err).Msg("refresher exited with error")
+	}
 	log.Info().Msg("adserver stopped")
 }

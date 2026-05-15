@@ -1,105 +1,178 @@
-// Package delivery wires Postgres reads, the storage resolver, and the
-// VAST builder into the `GET /vast` HTTP endpoint.
+// Package delivery wires the in-memory registry, selection logic, storage
+// resolver, and VAST builder into the GET /vast HTTP endpoint.
 //
-// Phase 1 contract:
-//   - GET /vast?ad_id=<uuid> → 200 application/xml with an InLine VAST 4.2
-//     response when the ad + campaign are active and not expired.
-//   - GET /vast (no ad_id) or any failure path (bad UUID, ad not found,
-//     campaign paused / completed / archived / expired, resolver error) →
-//     200 application/xml with a no-fill VAST. Never 5xx to a player.
+// Phase 3 contract:
+//   - Zero Postgres reads on the hot path. The Snapshot is read with a
+//     single atomic.Pointer.Load().
+//   - At most one Redis round trip per request (the budget Lua script).
+//     Redis is optional in dev — a nil enforcer always allows.
+//   - Selection allocates ≤ 2 objects per request in steady state (see
+//     internal/selection/select_bench_test.go).
 //
-// Phase 3 will keep this handler but replace the DB read with an in-memory
-// snapshot lookup and add selection logic; the request → response shape
-// stays the same.
+// Failure modes always emit a valid empty VAST 4.2; the player never sees a
+// 5xx (chi's Recoverer middleware also catches panics).
 package delivery
 
 import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 
+	"github.com/eliau2005/openadsource/server/internal/capping"
 	"github.com/eliau2005/openadsource/server/internal/config"
-	"github.com/eliau2005/openadsource/server/internal/db"
+	"github.com/eliau2005/openadsource/server/internal/registry"
+	"github.com/eliau2005/openadsource/server/internal/selection"
 	"github.com/eliau2005/openadsource/server/internal/storage"
+	"github.com/eliau2005/openadsource/server/internal/targeting"
 	"github.com/eliau2005/openadsource/server/internal/vast"
 )
 
 // Handler holds the dependencies needed to serve /vast. Constructed once at
-// boot and shared across requests; methods must stay goroutine-safe.
+// boot and shared across requests. Methods must stay goroutine-safe.
 type Handler struct {
 	cfg      config.Config
-	queries  *db.Queries
+	registry *registry.Refresher
 	resolver storage.Resolver
+	budget   *capping.Enforcer
+	ip       *targeting.IPResolver
+	geo      targeting.GeoResolver
 }
 
-// New constructs a Handler. The caller is responsible for closing the pool
-// behind queries when shutting down.
-func New(cfg config.Config, queries *db.Queries, resolver storage.Resolver) *Handler {
-	return &Handler{cfg: cfg, queries: queries, resolver: resolver}
+// New constructs a Handler. registry must already have a snapshot loaded
+// (gate on registry.WaitReady before exposing the listener).
+func New(
+	cfg config.Config,
+	reg *registry.Refresher,
+	resolver storage.Resolver,
+	budget *capping.Enforcer,
+	ip *targeting.IPResolver,
+	geo targeting.GeoResolver,
+) *Handler {
+	return &Handler{cfg: cfg, registry: reg, resolver: resolver, budget: budget, ip: ip, geo: geo}
 }
+
+// maxBudgetRetries is how many candidates we'll cycle through when budget
+// reservations fail before falling back to no-fill. Bounded to keep the hot
+// path's Redis RTT cost finite.
+const maxBudgetRetries = 5
 
 // ServeVAST is the GET /vast handler.
 func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, max-age=0")
 
-	rawAdID := r.URL.Query().Get("ad_id")
-	if rawAdID == "" {
+	snap := h.registry.Get()
+	if snap == nil {
+		// Snapshot not yet loaded — should be impossible because the
+		// listener doesn't open until WaitReady fires, but be defensive.
 		h.writeEmpty(w)
 		return
 	}
 
-	adID, err := uuid.Parse(rawAdID)
-	if err != nil {
-		log.Debug().Str("ad_id", rawAdID).Err(err).Msg("invalid ad_id, serving no-fill")
-		h.writeEmpty(w)
-		return
+	q := r.URL.Query()
+	req := selection.Request{
+		Pos:    defaultStr(q.Get("pos"), "pre"),
+		Offset: parseInt32(q.Get("offset")),
 	}
 
-	pgID := pgtype.UUID{Bytes: adID, Valid: true}
-	row, err := h.queries.GetAdByID(r.Context(), pgID)
-	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			log.Warn().Str("ad_id", adID.String()).Err(err).Msg("GetAdByID failed, serving no-fill")
+	// Country / device: explicit query param wins, else GeoIP + UA derive.
+	if c := q.Get("country"); c != "" {
+		req.Country = c
+	} else {
+		ip := h.ip.Resolve(r)
+		req.Country = h.geo.CountryISO(ip)
+	}
+	if d := q.Get("device"); d != "" {
+		req.Device = targeting.NormaliseDevice(d)
+	} else {
+		req.Device = targeting.ClassifyUA(r.UserAgent())
+	}
+
+	// Test override: ?ad_id=<uuid> bypasses selection but still goes
+	// through budget enforcement. Lookup stays memory-only.
+	if rawID := q.Get("ad_id"); rawID != "" {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			h.writeEmpty(w)
+			return
 		}
-		h.writeEmpty(w)
+		ad, ok := snap.ByID[id]
+		if !ok {
+			h.writeEmpty(w)
+			return
+		}
+		h.serveAd(w, r, ad)
 		return
 	}
 
-	if !adEligible(row) {
-		log.Debug().Str("ad_id", adID.String()).Msg("ad ineligible, serving no-fill")
-		h.writeEmpty(w)
-		return
+	// Selection loop — retry up to maxBudgetRetries candidates, excluding
+	// any whose budget was rejected by Redis.
+	var excluded map[int]bool
+	for attempt := 0; attempt < maxBudgetRetries; attempt++ {
+		req.Exclude = excluded
+		cand := selection.Select(snap, req)
+		if cand == nil {
+			h.writeEmpty(w)
+			return
+		}
+		_, err := h.budget.TryReserve(r.Context(), cand.CampaignID.String(), cand.BudgetTotal)
+		if err == nil {
+			h.serveAd(w, r, cand)
+			return
+		}
+		if !errors.Is(err, capping.BudgetExhausted) {
+			log.Warn().Err(err).Msg("budget enforcer error; treating as no-fill")
+			h.writeEmpty(w)
+			return
+		}
+		// Mark exhausted by ad index and retry.
+		idx := -1
+		for i, a := range snap.Ads {
+			if a == cand {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			h.writeEmpty(w)
+			return
+		}
+		if excluded == nil {
+			excluded = make(map[int]bool, maxBudgetRetries)
+		}
+		excluded[idx] = true
 	}
+	h.writeEmpty(w)
+}
 
-	mediaURL, mediaMime, err := h.resolver.ResolveMediaURL(r.Context(), row)
+// serveAd resolves the media URL, builds the VAST, and writes the
+// response. Reused by both the selection path and the ?ad_id= test path.
+func (h *Handler) serveAd(w http.ResponseWriter, r *http.Request, ad *registry.Ad) {
+	mediaURL, err := h.resolver.ResolveMediaURL(r.Context(), ad.MediaSource, ad.MediaURL)
 	if err != nil {
-		log.Warn().Str("ad_id", adID.String()).Err(err).Msg("resolver failed, serving no-fill")
+		log.Warn().Str("ad_id", ad.ID.String()).Err(err).Msg("resolver failed; no-fill")
 		h.writeEmpty(w)
 		return
 	}
 
-	input := vast.InlineInput{
-		AdID:          adID.String(),
-		Title:         row.Name,
-		ImpressionURL: h.impressionURL(adID),
+	body, err := vast.BuildInline(vast.InlineInput{
+		AdID:          ad.ID.String(),
+		Title:         ad.Name,
+		ImpressionURL: h.impressionURL(ad.ID),
 		MediaURL:      mediaURL,
-		MediaMime:     mediaMime,
-		MediaWidth:    derefInt32(row.MediaWidth),
-		MediaHeight:   derefInt32(row.MediaHeight),
-		MediaBitrate:  derefInt32(row.MediaBitrateKbps),
-		MediaDuration: formatDuration(row.MediaDurationMs),
-		LandingURL:    derefString(row.LandingPageUrl),
-	}
-	body, err := vast.BuildInline(input)
+		MediaMime:     ad.MediaMime,
+		MediaWidth:    int(ad.MediaWidth),
+		MediaHeight:   int(ad.MediaHeight),
+		MediaBitrate:  int(ad.MediaBitrate),
+		MediaDuration: formatDuration(ad.MediaDurationMs),
+		LandingURL:    ad.LandingPageURL,
+	})
 	if err != nil {
-		log.Error().Str("ad_id", adID.String()).Err(err).Msg("BuildInline failed, serving no-fill")
+		log.Error().Str("ad_id", ad.ID.String()).Err(err).Msg("BuildInline failed; no-fill")
 		h.writeEmpty(w)
 		return
 	}
@@ -109,10 +182,6 @@ func (h *Handler) ServeVAST(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) writeEmpty(w http.ResponseWriter) {
 	body, err := vast.BuildEmpty()
 	if err != nil {
-		// BuildEmpty marshals a static struct — practically infallible. If
-		// it ever fails, write a hard-coded minimal VAST so the player still
-		// gets parseable XML.
-		log.Error().Err(err).Msg("BuildEmpty failed, falling back to literal")
 		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<VAST version="4.2"></VAST>` + "\n"))
 		return
 	}
@@ -123,40 +192,31 @@ func (h *Handler) impressionURL(adID uuid.UUID) string {
 	return fmt.Sprintf("%s/track?event=impression&ad_id=%s", h.cfg.PublicBaseURL, adID.String())
 }
 
-func adEligible(row db.GetAdByIDRow) bool {
-	if row.Status != "active" {
-		return false
-	}
-	if row.CampaignStatus != "active" {
-		return false
-	}
-	if row.CampaignEndDate.Valid && row.CampaignEndDate.Time.Before(time.Now()) {
-		return false
-	}
-	return true
-}
-
-func formatDuration(ms *int32) string {
-	if ms == nil || *ms <= 0 {
+func formatDuration(ms int32) string {
+	if ms <= 0 {
 		return ""
 	}
-	secs := *ms / 1000
+	secs := ms / 1000
 	hh := secs / 3600
 	mm := (secs / 60) % 60
 	ss := secs % 60
 	return fmt.Sprintf("%02d:%02d:%02d", hh, mm, ss)
 }
 
-func derefInt32(p *int32) int {
-	if p == nil {
+func parseInt32(s string) int32 {
+	if s == "" {
 		return 0
 	}
-	return int(*p)
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int32(n)
 }
 
-func derefString(p *string) string {
-	if p == nil {
-		return ""
+func defaultStr(s, fallback string) string {
+	if s == "" {
+		return fallback
 	}
-	return *p
+	return s
 }
