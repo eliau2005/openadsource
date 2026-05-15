@@ -4,10 +4,7 @@ const nav = [
   { href: "/campaigns", label: "Campaigns" },
   { href: "/advertisers", label: "Advertisers" },
   { href: "/ads", label: "Ads" },
-] as const;
-
-const placeholderNav = [
-  { href: "#", label: "Reports", badge: "Phase 4" },
+  { href: "/reports", label: "Reports" },
 ] as const;
 
 export function Sidebar() {
@@ -31,20 +28,6 @@ export function Sidebar() {
           >
             {item.label}
           </Link>
-        ))}
-
-        <div className="pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-900" />
-
-        {placeholderNav.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center justify-between rounded-md px-3 py-2 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
-          >
-            <span>{item.label}</span>
-            <span className="text-[10px] uppercase tracking-wider rounded bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5">
-              {item.badge}
-            </span>
-          </div>
         ))}
       </nav>
     </aside>

@@ -102,6 +102,34 @@ export const capRules = pgTable(
   }),
 );
 
+// daily_stats is the worker's drain destination (Phase 4). One row per
+// (ad_id, date); each tick adds the latest Redis deltas via
+// ON CONFLICT DO UPDATE. Read-only from the dashboard.
+export const dailyStats = pgTable(
+  "daily_stats",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    adId: uuid("ad_id")
+      .notNull()
+      .references(() => ads.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // pg DATE; Drizzle string is fine for read-only
+    impressions: integer("impressions").notNull().default(0),
+    clicks: integer("clicks").notNull().default(0),
+    startCount: integer("start_count").notNull().default(0),
+    q25: integer("q25").notNull().default(0),
+    q50: integer("q50").notNull().default(0),
+    q75: integer("q75").notNull().default(0),
+    complete: integer("complete").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    campaignDateIdx: index("idx_daily_stats_campaign_date").on(t.campaignId, t.date),
+  }),
+);
+
 export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
 export type Advertiser = InferSelectModel<typeof advertisers>;
