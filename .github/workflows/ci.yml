@@ -37,15 +37,11 @@ jobs:
         run: go mod download
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.60
+          version: v2.1.6
           working-directory: server
-          # --go=1.23 pins the language-version target so golangci-lint v1.x
-          # (built with Go 1.23) doesn't refuse our Go 1.25 source. Our code
-          # doesn't use 1.24/1.25-only syntax features, so 1.23 static analysis
-          # is correct. Drop this once we migrate to golangci-lint v2.x.
-          args: --timeout=5m --go=1.23
+          args: --timeout=5m
 
       - name: go vet
         run: go vet ./...
