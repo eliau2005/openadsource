@@ -4,10 +4,16 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { isProduction } from "@/lib/env";
+import { env } from "@/lib/env";
 import { signSession, verifySession, SESSION_TTL_SECONDS, type SessionPayload } from "@/lib/jwt";
 
 const COOKIE_NAME = "oas_session";
+
+// Whether to set the Secure flag on the session cookie. Browsers refuse to
+// store Secure cookies sent over http, so we *cannot* base this on NODE_ENV
+// (which is "production" even when the operator deploys behind plain http
+// like our WSL setup). Drive it off the deploy's actual public scheme.
+const COOKIE_SECURE = env.PUBLIC_BASE_URL.startsWith("https://");
 
 export async function setSessionCookie(payload: SessionPayload): Promise<void> {
   const token = await signSession(payload);
@@ -15,7 +21,7 @@ export async function setSessionCookie(payload: SessionPayload): Promise<void> {
   jar.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProduction,
+    secure: COOKIE_SECURE,
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
   });

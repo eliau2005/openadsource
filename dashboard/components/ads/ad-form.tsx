@@ -57,14 +57,14 @@ export function AdForm({
             <select
               id="campaignId"
               name="campaignId"
-              defaultValue={defaults?.campaignId ?? ""}
+              defaultValue={defaults?.campaignId ?? campaigns[0]?.id ?? ""}
               disabled={isPending || campaigns.length === 0}
               required
               className={selectCls}
             >
-              <option value="" disabled>
-                {campaigns.length === 0 ? "Create a campaign first" : "Pick one"}
-              </option>
+              {campaigns.length === 0 && (
+                <option value="" disabled>Create a campaign first</option>
+              )}
               {campaigns.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}

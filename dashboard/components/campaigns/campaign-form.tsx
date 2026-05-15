@@ -43,14 +43,14 @@ export function CampaignForm({
         <select
           id="advertiserId"
           name="advertiserId"
-          defaultValue={defaults?.advertiserId ?? ""}
+          defaultValue={defaults?.advertiserId ?? advertisers[0]?.id ?? ""}
           disabled={isPending || advertisers.length === 0}
           required
           className={inputCls}
         >
-          <option value="" disabled>
-            {advertisers.length === 0 ? "Create an advertiser first" : "Pick one"}
-          </option>
+          {advertisers.length === 0 && (
+            <option value="" disabled>Create an advertiser first</option>
+          )}
           {advertisers.map((a) => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}

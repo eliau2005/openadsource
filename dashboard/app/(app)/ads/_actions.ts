@@ -26,8 +26,15 @@ function optionalInt(label: string) {
     });
 }
 
+// Zod 4 .uuid() rejects any UUID that isn't strictly a versioned v1-v7 (it
+// looks at the version nibble). Postgres' uuid type is happy with any 128-bit
+// value, including the all-twos / all-zeros sentinel UUIDs we use in seed
+// data. Use a permissive format check instead so a valid Postgres UUID
+// can't slip past the form here.
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 const adSchema = z.object({
-  campaignId: z.string().uuid({ message: "Pick a campaign" }),
+  campaignId: z.string().regex(UUID_REGEX, { message: "Pick a campaign" }),
   name: z.string().trim().min(1, "Name is required").max(200),
   status: z.enum(["active", "paused", "archived"]).default("active"),
   positionType: z.enum(["pre", "mid", "post"]).default("pre"),

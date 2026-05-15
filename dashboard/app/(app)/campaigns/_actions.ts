@@ -9,8 +9,13 @@ import { db } from "@/lib/db/client";
 import { campaigns } from "@/lib/db/schema";
 import { requireSession } from "@/lib/session";
 
+// Permissive UUID regex — Zod 4's .uuid() rejects non-versioned UUIDs like
+// the all-zeros / all-ones sentinels we use in seed data, but Postgres
+// accepts them happily.
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 const campaignSchema = z.object({
-  advertiserId: z.string().uuid({ message: "Pick an advertiser" }),
+  advertiserId: z.string().regex(UUID_REGEX, { message: "Pick an advertiser" }),
   name: z.string().trim().min(1, "Name is required").max(200),
   startDate: z
     .string()
