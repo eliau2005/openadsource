@@ -12,6 +12,10 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Build-time dummies satisfy zod-validated env.ts during Next's page-data
+# collection. Real values are injected by docker compose at runtime.
+ENV DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder
+ENV JWT_SECRET=placeholder-build-time-key-replaced-at-runtime
 RUN npm run build
 
 # ---------- runner ----------
