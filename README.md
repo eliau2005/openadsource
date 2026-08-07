@@ -166,25 +166,17 @@ CHANGELOG.md               Keep-a-Changelog release notes
 
 Issues and PRs are welcome.
 
-The repository ships **empty** `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
-`SECURITY.md`, and `LICENSE` files — the file paths exist (so GitHub's
-sidebar links work) but the canonical text needs to be pasted in by
-hand before publishing a release:
+The project ships a full [`CONTRIBUTING.md`](./CONTRIBUTING.md),
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) (Contributor Covenant 2.1),
+[`SECURITY.md`](./SECURITY.md), and an Apache 2.0 [`LICENSE`](./LICENSE).
 
-- `LICENSE` — Apache 2.0 (the project's intended license)
-- `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1
-- `CONTRIBUTING.md` — typical Go + Next.js workflow notes
-- `SECURITY.md` — disclosure address + supported-version table
+Please read `CONTRIBUTING.md` before opening a pull request.
 
-This intentional gap is a Phase 5 carry-over; the v1.1 milestone will
-publish a "first-publish checklist" with templates for each.
-
-For now, when reporting a security issue, please email the address you
-add to `SECURITY.md` — do not open a public issue.
+For security issues, follow the disclosure process described in
+`SECURITY.md` — do not open a public issue.
 
 ---
 
 ## License
 
-Apache 2.0 (intended). See [`LICENSE`](./LICENSE) — currently empty,
-paste the canonical Apache 2.0 text before publishing.
+Apache 2.0. See [`LICENSE`](./LICENSE).
